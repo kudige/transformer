@@ -4,9 +4,6 @@ Debug = require('./debug')
 
 var Transformer = function() {
 	this.filters = {
-		upper : function(a) {return a.toString().toUpperCase()},
-		lower :  function(a) {return a.toString().toLowerCase()},
-		dummy: function(a) { return 'DUMMY'}
 	}
 	this.macros = {
 	}
@@ -19,24 +16,70 @@ var Transformer = function() {
 }
 
 Transformer.prototype.autodetect = function() {
-	this.constructor.prototype.each(function(name, fn) {
-		if (name.match(/(macro|block|special)([A-Z][A-Z0-9]*)/)) {
-			console.log(''+name)
+	for (var fnname in this.constructor.prototype) {
+		if (fnname.match(/(macro|block|special|filter)_([A-Za-z0-9]+)/)) {
+			var type = RegExp.$1, name = RegExp.$2.toLowerCase()
+			if (type === 'macro') {
+				this.addMacro(name, this[fnname])
+ 			} else if (RegExp.$1 === 'block') {
+				this.addBlockMacro(name, this[fnname])
+			} else if (RegExp.$1 === 'special') {
+				this.addBlockMacro(name, {freeform: true}, this[fnname])
+			} else if (RegExp.$1 === 'filter') {
+				this.addFilter(name, this[fnname])
+			}
 		}
-	})
+	}
 }
+
+Transformer.prototype.filter_upper = function(a) {
+	return a.toString().toUpperCase()
+}
+
+Transformer.prototype.filter_lower =  function(a) {
+	return a.toString().toLowerCase()
+}
+
+Transformer.prototype.macro_ldelim = function() {
+	return '{'
+}
+
+Transformer.prototype.macro_rdelim = function() {
+	return '}'
+}
+
+Transformer.prototype.macro_set = function(params) {
+	var vars = this
+	params.each(function(key) {
+		var value = params[key]
+		vars[key] = value
+	})
+	return ''
+}
+
+Transformer.prototype.special_while = function(context, i) {
+	return !(!VM.runInNewContext(context.params, context.viewvars))
+}
+
+Transformer.prototype.block_repeat = function(context, i) {
+	if (i < parseInt(context.params.count))
+		return true
+}
+
+Transformer.prototype.block_capture = function(context, i) {
+	if (!i) {
+		return true
+	}
+	context.viewvars[context.params.name] = context.block_content
+	context.block_content = ''
+}
+
 
 Transformer.prototype.initBuiltins = function() {
 	var self = this
-	this.addMacro('ldelim', function() {
-		return '{'
-	})
-	this.addMacro('rdelim', function() {
-		return '}'
-	})
-	this.addBlockMacro('if', {freeform: true}, function(params, i) {
+	this.addBlockMacro('if', {freeform: true}, function(context, i) {
 		if (i === 0) {
-			this.$transformer.context.conditonal = !(!VM.runInNewContext(params, this))
+			context.conditonal = !(!VM.runInNewContext(context.params, context.viewvars))
 			return true
 		} else {
 			return false
@@ -60,41 +103,40 @@ Transformer.prototype.initBuiltins = function() {
 		return ifcode.parent
 	})
 
-	this.addBlockMacro('iftrue', function(params, i) {
+	this.addBlockMacro('iftrue', function(context, i) {
 		if (i > 0)
 			return false
 
-		var ifcontext = this.$transformer.context.parent('if')
+		var ifcontext = context.parent('if')
 		return ifcontext.conditonal
 	})
 
-	this.addBlockMacro('else', {freeform: true, autoclose : true}, function(params, i) {
-		if (params.match(/[^\s]+/)) {
+	this.addBlockMacro('else', {freeform: true, autoclose : true}, function(context, i) {
+		if (context.params.match(/[^\s]+/)) {
 			Transformer.debug.error("{else} does not expect params")
 			return false
 		}
-
 		if (i > 0)
 			return false
 
-		var ifcontext = this.$transformer.context.parent('if')
+		var ifcontext = context.parent('if')
 		return !ifcontext.conditonal
 	})
 
-	this.addBlockMacro('foreach', {required: {from:true, item:true}}, function(params, i) {
+	this.addBlockMacro('foreach', {required: {from:true, item:true}}, function(context, i) {
 		if (i == 0) {
 			// Setup the loop vars
-			this.$transformer.context.params = params
-			this.$transformer.context.from = this[params.from]
+			//context.params = params
+			context.from = context.viewvars[context.params.from]
 			var kvlist = []
 			try {
-				this[params.from].each(function(k,v, kvlist1) {
+				context.viewvars[context.params.from].each(function(k,v, kvlist1) {
 					kvlist.push({key: k, value: v})
 				}, kvlist)
 			} catch(e) {
-				this.$transformer.context.error = e.message
+				context.error = e.message
 			}
-			this.$transformer.context.kvlist = kvlist
+			context.kvlist = kvlist
 			return true
 		}
 		return false
@@ -117,52 +159,27 @@ Transformer.prototype.initBuiltins = function() {
 		return code.parent
 	})
 
-	this.addBlockMacro('foreachbody', {}, function(params, i) {
-		var context = this.$transformer.context.parent('foreach')
+	this.addBlockMacro('foreachbody', {}, function(context, i) {
+		var context = context.parent('foreach')
 		if (context.error)
 			return false
-		params = context.params
+		var params = context.params
 		if (i < context.kvlist.length) {
-			this[params.item] = context.kvlist[i].value
+			context.viewvars[params.item] = context.kvlist[i].value
 			if (params.key)
-				this[params.key] = context.kvlist[i].key
+				context.viewvars[params.key] = context.kvlist[i].key
 			return true
 		}
 		return false
 	})
 
-	this.addBlockMacro('foreachelse', {autoclose: true}, function(params, i) {
+	this.addBlockMacro('foreachelse', {autoclose: true}, function(context, i) {
 		if (i > 0)
 			return false
-		var context = this.$transformer.context.parent('foreach')
+		var context = context.parent('foreach')
 		return !(!(context.error)) || !context.kvlist.length
 	})
 
-	this.addBlockMacro('while', {freeform: true}, function(params, i) {
-		return !(!VM.runInNewContext(params, this))
-	})
-
-	this.addBlockMacro('repeat', function(params, i) {
-		if (i < parseInt(params.count))
-			return true
-	})
-
-	this.addBlockMacro('capture', function(params, i) {
-		if (!i) {
-			return true
-		}
-		this[params.name] = this.$transformer.block_content
-		this.$transformer.block_content = ''
-	})
-
-	this.addMacro('set', function(params) {
-		var vars = this
-		params.each(function(key) {
-			var value = params[key]
-			vars[key] = value
-		})
-		return ''
-	})
 }
 
 Transformer.debug = new Debug('DummyTemplate')
@@ -328,8 +345,10 @@ Transformer.prototype.op_block = function(param, vars, children) {
 	}
 
 	var loop_count=0
-	vars.$transformer.block_content = ''
 	var newContext = new BlockContext(macro)
+	newContext.params = param.params
+	newContext.viewvars = vars
+	newContext.block_content = ''
 	vars.$transformer.context.addChild(newContext)
 	vars.$transformer.context  = newContext
 	
@@ -338,15 +357,15 @@ Transformer.prototype.op_block = function(param, vars, children) {
 		var params = param.params
 		if (!param.freeform)
 			params = this.evalParams(param.params, vars)
-		var result = macro_fn.call(vars, params, loop_count)
+		var result = macro_fn.call(self, newContext, loop_count)
 		if (result !== true) {
 			break
 		}
-		vars.$transformer.block_content = vars.$transformer.block_content + this.op_composite(param, vars, children)
+		newContext.block_content = newContext.block_content + this.op_composite(param, vars, children)
 		loop_count++
 	}
 	vars.$transformer.context = vars.$transformer.context.parent()
-	return vars.$transformer.block_content
+	return newContext.block_content
 }
 
 /*

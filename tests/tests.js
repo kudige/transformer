@@ -187,8 +187,8 @@ Tests.prototype.testblocks =function() {
 	var vars= {var1 : 'VAR1',
 			   var2 : 'VAR2'}
 	var transformer = new Transformer
-	transformer.addBlockMacro('loop', function(params, i) {
-		if (i < parseInt(params.count))
+	transformer.addBlockMacro('loop', function(context, i) {
+		if (i < parseInt(context.params.count))
 			return true
 	})
 	var ins = transformer.compile(input)
