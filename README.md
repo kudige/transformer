@@ -21,22 +21,22 @@ npm test transformer
 
 To give an idea of how the transformer template looks, I have included a small example:
 <pre><code>
-<h1>{=page.title}
-<h2>Order List</h2>
+&lt;h1&gt;{=page.title}
+&lt;h2&gt;Order List&lt;/h2&gt;
 
 {set total=0}
-<table>
-<tr><th>Product</th><th>Price</th><Quantity</th></tr>
-<tr>
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Product&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;Quantity&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
 {foreach from=orders item=order}
-<tr>
-<td>{=order.name}</td> <td> {= order.price|currency} </td> <td>{order.qty}</td>
-</tr>
+&lt;tr&gt;
+&lt;td&gt;{=order.name}&lt;/td&gt; &lt;td&gt; {= order.price|currency} &lt;/td&gt; &lt;td&gt;{order.qty}&lt;/td&gt;
+&lt;/tr&gt;
 {set total=`order.price*order.qty+total`}
 {/foreach}
-<p>
+&lt;p&gt;
 Total price: {=total|currency}
-</p>
+&lt;/p&gt;
 </code></pre>
 
 
