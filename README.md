@@ -17,5 +17,28 @@ node tests/tests.js OR
 npm test transformer
 </code></pre>
 
+# Sample template
+
+To give an idea of how the transformer template looks, I have included a small example:
+<pre><code>
+<h1>{=page.title}
+<h2>Order List</h2>
+
+{set total=0}
+<table>
+<tr><th>Product</th><th>Price</th><Quantity</th></tr>
+<tr>
+{foreach from=orders item=order}
+<tr>
+<td>{=order.name}</td> <td> {= order.price|currency} </td> <td>{order.qty}</td>
+</tr>
+{set total=`order.price*order.qty+total`}
+{/foreach}
+<p>
+Total price: {=total|currency}
+</p>
+</code></pre>
+
+
 ## License 
 As described in LICENSE
