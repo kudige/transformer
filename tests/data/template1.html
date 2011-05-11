@@ -1,0 +1,15 @@
+<html>
+<head>
+{script src=jquery.js}
+</head>
+<body>
+<h1>{$title|upper}</h1>
+
+{form action=adduser}
+Some extra label:    {input name=username}
+Some other label:    {input name=lastname label="Last name"}
+    {input name=age value=`defaults.age`}
+{formend}
+
+</body>
+</html>
