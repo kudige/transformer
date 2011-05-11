@@ -21,7 +21,7 @@ npm test transformer
 
 To give an idea of how the transformer template looks, I have included a small example:
 <pre><code>
-&lt;h1&gt;{=page.title}
+&lt;h1&gt;{=page.title}&lt;/h1&gt;
 &lt;h2&gt;Order List&lt;/h2&gt;
 
 {set total=0}
