@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-var Jstest = require('jstest'),
+var Jstest = require('./jstest'),
 Util = require('util'),
 FS = require('fs'),
 Transformer = require('transformer')
