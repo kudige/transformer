@@ -3,28 +3,35 @@ Util = require('./myutils'),
 Debug = require('./debug')
 
 var Transformer = function() {
-	this.filters = {
-	}
-	this.macros = {
-	}
-	this.blockMacros = {
-	}
-	this.ignoreUnknownMacros = false
+	this.filters = {}
+	this.macros = {}
+	this.blockMacros = {}
 	this.specialBlocks = {}
-	this.initBuiltins()
+	this.ignoreUnknownMacros = false
+
+	// Auto detect builtins
 	this.autodetect()
+
+	// Special flags
+	this.blockMacros['else'].autoclose = true
+	this.blockMacros['foreachelse'].autoclose = true
 }
 
 Transformer.prototype.autodetect = function() {
 	for (var fnname in this.constructor.prototype) {
 		if (fnname.match(/(macro|block|special|filter)_([A-Za-z0-9]+)/)) {
 			var type = RegExp.$1, name = RegExp.$2.toLowerCase()
+			var options = {}
+			if (typeof(this['postcompile_'+name]) == 'function') {
+				options.onClose = this['postcompile_'+name]
+			}
 			if (type === 'macro') {
 				this.addMacro(name, this[fnname])
  			} else if (RegExp.$1 === 'block') {
-				this.addBlockMacro(name, this[fnname])
+				this.addBlockMacro(name, options, this[fnname])
 			} else if (RegExp.$1 === 'special') {
-				this.addBlockMacro(name, {freeform: true}, this[fnname])
+				options.freeform = true
+				this.addBlockMacro(name, options, this[fnname])
 			} else if (RegExp.$1 === 'filter') {
 				this.addFilter(name, this[fnname])
 			}
@@ -32,6 +39,7 @@ Transformer.prototype.autodetect = function() {
 	}
 }
 
+/* Builtin filters */
 Transformer.prototype.filter_upper = function(a) {
 	return a.toString().toUpperCase()
 }
@@ -48,6 +56,7 @@ Transformer.prototype.macro_rdelim = function() {
 	return '}'
 }
 
+/* Builtin macros */
 Transformer.prototype.macro_set = function(params) {
 	var vars = this
 	params.each(function(key) {
@@ -75,111 +84,113 @@ Transformer.prototype.block_capture = function(context, i) {
 }
 
 
-Transformer.prototype.initBuiltins = function() {
+Transformer.prototype.special_if = function(context, i) {
+	if (i === 0) {
+		context.conditonal = !(!VM.runInNewContext(context.params, context.viewvars))
+		return true
+	} else {
+		return false
+	}
+}
+
+Transformer.prototype.postcompile_if = function(ifcode) {
 	var self = this
-	this.addBlockMacro('if', {freeform: true}, function(context, i) {
-		if (i === 0) {
-			context.conditonal = !(!VM.runInNewContext(context.params, context.viewvars))
-			return true
+	// Post compile callback
+	var iftrue = self.makeBlockInstruction('iftrue')
+	var ifelse = null
+	ifcode.children.each(function(i, child) {
+		if (child.op === 'block' && child.param.macro === 'else') {
+			ifelse= child
 		} else {
-			return false
+			self.pushOperation(iftrue, child)
 		}
-	}, function(ifcode) {
-		// Post compile callback
-		var iftrue = self.makeBlockInstruction('iftrue')
-		var ifelse = null
-		ifcode.children.each(function(i, child) {
-			if (child.op === 'block' && child.param.macro === 'else') {
-				ifelse= child
-			} else {
-				self.pushOperation(iftrue, child)
-			}
-		})
-		ifcode.children = []
-		self.pushOperation(ifcode, iftrue)
-		if (ifelse)
-			self.pushOperation(ifcode, ifelse)
-
-		return ifcode.parent
 	})
+	ifcode.children = []
+	self.pushOperation(ifcode, iftrue)
+	if (ifelse)
+		self.pushOperation(ifcode, ifelse)
 
-	this.addBlockMacro('iftrue', function(context, i) {
-		if (i > 0)
-			return false
+	return ifcode.parent
+}
 
-		var ifcontext = context.parent('if')
-		return ifcontext.conditonal
-	})
-
-	this.addBlockMacro('else', {freeform: true, autoclose : true}, function(context, i) {
-		if (context.params.match(/[^\s]+/)) {
-			Transformer.debug.error("{else} does not expect params")
-			return false
-		}
-		if (i > 0)
-			return false
-
-		var ifcontext = context.parent('if')
-		return !ifcontext.conditonal
-	})
-
-	this.addBlockMacro('foreach', {required: {from:true, item:true}}, function(context, i) {
-		if (i == 0) {
-			// Setup the loop vars
-			//context.params = params
-			context.from = context.viewvars[context.params.from]
-			var kvlist = []
-			try {
-				context.viewvars[context.params.from].each(function(k,v, kvlist1) {
-					kvlist.push({key: k, value: v})
-				}, kvlist)
-			} catch(e) {
-				context.error = e.message
-			}
-			context.kvlist = kvlist
-			return true
-		}
+Transformer.prototype.block_iftrue = function(context, i) {
+	if (i > 0)
 		return false
-	}, function(code) {
-		// Post compile callback
-		var febody = self.makeBlockInstruction('foreachbody')
-		var feelse = null
-		code.children.each(function(i, child) {
-			if (child.op === 'block' && child.param.macro === 'foreachelse') {
-				feelse= child
-			} else {
-				self.pushOperation(febody, child)
-			}
-		})
-		code.children = []
-		self.pushOperation(code, febody)
-		if (feelse)
-			self.pushOperation(code, feelse)
+	
+	var ifcontext = context.parent('if')
+	return ifcontext.conditonal
+}
 
-		return code.parent
-	})
-
-	this.addBlockMacro('foreachbody', {}, function(context, i) {
-		var context = context.parent('foreach')
-		if (context.error)
-			return false
-		var params = context.params
-		if (i < context.kvlist.length) {
-			context.viewvars[params.item] = context.kvlist[i].value
-			if (params.key)
-				context.viewvars[params.key] = context.kvlist[i].key
-			return true
-		}
+Transformer.prototype.special_else = function(context, i) {
+	if (context.params.match(/[^\s]+/)) {
+		Transformer.debug.error("{else} does not expect params")
 		return false
-	})
+	}
+	if (i > 0)
+		return false
 
-	this.addBlockMacro('foreachelse', {autoclose: true}, function(context, i) {
-		if (i > 0)
-			return false
-		var context = context.parent('foreach')
-		return !(!(context.error)) || !context.kvlist.length
-	})
+	var ifcontext = context.parent('if')
+	return !ifcontext.conditonal
+}
 
+Transformer.prototype.block_foreach = function(context, i) {
+	if (i == 0) {
+		// Setup the loop vars
+		//context.params = params
+		context.from = context.viewvars[context.params.from]
+		var kvlist = []
+		try {
+			context.viewvars[context.params.from].each(function(k,v, kvlist1) {
+				kvlist.push({key: k, value: v})
+			}, kvlist)
+		} catch(e) {
+			context.error = e.message
+		}
+		context.kvlist = kvlist
+		return true
+	}
+	return false
+}
+
+Transformer.prototype.postcompile_foreach = function(code) {
+	// Post compile callback
+	var self = this
+	var febody = self.makeBlockInstruction('foreachbody')
+	var feelse = null
+	code.children.each(function(i, child) {
+		if (child.op === 'block' && child.param.macro === 'foreachelse') {
+			feelse= child
+		} else {
+			self.pushOperation(febody, child)
+		}
+	})
+	code.children = []
+	self.pushOperation(code, febody)
+	if (feelse)
+		self.pushOperation(code, feelse)
+
+	return code.parent
+}
+
+Transformer.prototype.block_foreachbody = function(context, i) {
+	var context = context.parent('foreach')
+	if (context.error)
+		return false
+	var params = context.params
+	if (i < context.kvlist.length) {
+		context.viewvars[params.item] = context.kvlist[i].value
+		if (params.key)
+			context.viewvars[params.key] = context.kvlist[i].key
+		return true
+	}
+	return false
+}
+
+Transformer.prototype.block_foreachelse = function(context, i) {
+	if (i > 0)
+		return false
+	var context = context.parent('foreach')
+	return !(!(context.error)) || !context.kvlist.length
 }
 
 Transformer.debug = new Debug('DummyTemplate')
@@ -451,13 +462,13 @@ Transformer.prototype.closeScope = function(ptr) {
 		var realParent = ptr.realParent
 		while (ptr && ptr != realParent) {
 			if (this.blockMacros[ptr.param.macro] && this.blockMacros[ptr.param.macro].onClose) {
-				return this.blockMacros[ptr.param.macro].onClose(ptr)
+				return this.blockMacros[ptr.param.macro].onClose.call(this, ptr)
 			}
 			ptr = ptr.parent
 		}
 	}
 	if (this.blockMacros[ptr.param.macro] && this.blockMacros[ptr.param.macro].onClose) {
-		return this.blockMacros[ptr.param.macro].onClose(ptr)
+		return this.blockMacros[ptr.param.macro].onClose.call(this, ptr)
 	}
 	return ptr.parent
 }
