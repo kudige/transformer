@@ -32,8 +32,8 @@ Tests.prototype.testvars = function() {
 				b: "BBB",
 				c: "C",
 				n: 8}
-	var input = 'abcd {$ a} {$ b} {$ c} {$ a} {$ n*4 - n/2}'
-	var verify = 'abcd A BBB C A 28'
+	var input = 'abcd {abc\n {$ a}\n} {$ b} {$ c} {$ a} {$ n*4 - n/2}'
+	var verify = 'abcd {abc\n A\n} BBB C A 28'
 	var ins = this.transformer.compile(input)
 	var output = this.transformer.execute(ins, vars)
 
@@ -92,8 +92,8 @@ Tests.prototype.testmacro = function() {
 	this.assertEquals('testmacro.basic', output, verify, 'output', 'verify')
 	
 	// Macro with params
-	this.transformer.addMacro('simple_macro2', function(params) {
-		return params.a + "::" + params.b
+	this.transformer.addMacro('simple_macro2', function(context) {
+		return context.params.a + "::" + context.params.b
 	})
 
 	input  = "This substitutes macro {simple_macro2 a=123 b='Hello there'} along with variable {$var1} and {$var2.field1}"
@@ -103,7 +103,8 @@ Tests.prototype.testmacro = function() {
 	this.assertEquals('testmacro.params', output, verify, 'output', 'verify')
 
 	// Macro with vars for fields with undefined vars
-	this.transformer.addMacro('simple_macro3', function(params) {
+	this.transformer.addMacro('simple_macro3', function(context) {
+		var params = context.params
 		return params.a + "::" + params.b + '::' + params.c
 	})
 	input  = "This substitutes macro {simple_macro3 a=`var1` b=`var2.field1` c=`var3.field3.xyz`} along with variable {$var1} and {$var2.field1}"
@@ -125,19 +126,23 @@ Tests.prototype.testmacro = function() {
 // Basic HTML transformation
 var HtmlTransformer = function() {
 	Transformer.call(this)
-	this.addMacro('script', function(params) {
+	this.addMacro('script', function(context) {
+		var params = context.params
 		return "<script src='%s' type='%s'></script>".format(params.src, params.type || 'text/javascript')
 	})
 
-	this.addMacro('form', function(params) {
+	this.addMacro('form', function(context) {
+		var params = context.params
 		return "<form mathod='POST' action='%s'>".format(params.action)
 	})
 
-	this.addMacro('formend', function(params) {
+	this.addMacro('formend', function(context) {
+		var params = context.params
 		return "</form>".format(params.action)
 	})
 
-	this.addMacro('input', function(params) {
+	this.addMacro('input', function(context) {
+		var params = context.params
 		return "<input name='%s' value='%s' type='%s'>".format(params.name, params.value||'', params.type || 'text')
 	})
 
@@ -402,6 +407,59 @@ Tests.prototype.testspecial2 = function() {
 	var output = this.transformer.execute(code, vars)
 	this.assertEquals('testspecial2.capture1', output, verify, 'output', 'verify')
 	this.assertEquals('testspecial2.capture1var', vars.somevar1, verify2, 'vars.somevar1', 'verify2')
+	this.next()
+}
+
+// HTML extensions
+Tests.prototype.test_extensions = function() {
+	var MyExtension = function() {
+	}
+	MyExtension.prototype.macro_thing = function(context) {
+		return "I am thing " + context.params.name
+	}
+	var transformer1 = new Transformer
+	var transformer2 = new Transformer
+	var transformer3 = new Transformer
+	var extension1 = new MyExtension
+	var extension2 = new MyExtension
+	extension2.namespace = 'dog'
+	transformer1.addExtension(extension1)
+	transformer2.addExtension(extension1, 'cat')
+	transformer3.addExtension(extension2)
+
+	var input = "Test extension {thing name=1} {cat:thing name=2} {dog:thing name=3}"
+	var verify1 = "Test extension I am thing 1 {cat:thing name=2} {dog:thing name=3}"
+	var verify2 = "Test extension {thing name=1} I am thing 2 {dog:thing name=3}"
+	var verify3 = "Test extension {thing name=1} {cat:thing name=2} I am thing 3"
+	var output1 = transformer1.execute(transformer1.compile(input))
+	var output2 = transformer2.execute(transformer2.compile(input))
+	var output3 = transformer3.execute(transformer3.compile(input))
+
+	this.assertEquals('test_extensions.basic', output1, verify1, 'output1', 'verify11')
+	this.assertEquals('test_extensions.namespace1', output2, verify2, 'output2', 'verify12')
+	this.assertEquals('test_extensions.namespace2', output3, verify3, 'output3', 'verify13')
+
+	this.next()
+}
+
+Tests.prototype.test_html_extensions = function() {
+//	var extension = require('../libs/html_extension')
+	var transformer = new Transformer
+	transformer.enableExtension('html')
+	var input = "Testing form {html:form} abcd {/html:form}"
+	var verify = "Testing form <form method=POST action=''> abcd </form>"
+	var code = transformer.compile(input)
+	var output = transformer.execute(code)
+	this.assertEquals("testextensions.htmlform", output, verify, 'output', 'verify')
+
+	transformer = new Transformer
+	transformer.enableExtension('html', '')
+	input = "Testing form {form} abcd {input name=username} {input name=passwd type=password} {/form}"
+	verify = "Testing form <form method=POST action=''> abcd <input name='username'></input> <input name='passwd' type='password'></input> </form>"
+	code = transformer.compile(input)
+	output = transformer.execute(code)
+	this.assertEquals("testextensions.htmlform2", output, verify, 'output', 'verify')
+
 	this.next()
 }
 

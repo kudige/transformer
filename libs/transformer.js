@@ -17,23 +17,39 @@ var Transformer = function() {
 	this.blockMacros['foreachelse'].autoclose = true
 }
 
-Transformer.prototype.autodetect = function() {
-	for (var fnname in this.constructor.prototype) {
+Transformer.prototype.enableExtension = function(ext, namespace) {
+	var extension = require('./%s_extension'.format(ext))
+	this.addExtension(extension, namespace)
+}
+
+Transformer.prototype.addExtension = function(extension, namespace) {
+	if (namespace === undefined)
+		namespace = extension.namespace
+	if (namespace === undefined)
+		namespace = ''
+	this.autodetect(extension, namespace)
+}
+
+Transformer.prototype.autodetect = function(handler, namespace) {
+	handler = handler || this
+	for (var fnname in handler.constructor.prototype) {
 		if (fnname.match(/(macro|block|special|filter)_([A-Za-z0-9]+)/)) {
 			var type = RegExp.$1, name = RegExp.$2.toLowerCase()
 			var options = {}
-			if (typeof(this['postcompile_'+name]) == 'function') {
-				options.onClose = this['postcompile_'+name]
+			if (namespace)
+				name = namespace+':'+name
+			if (typeof(handler['postcompile_'+name]) == 'function') {
+				options.onClose = handler['postcompile_'+name].bind(handler)
 			}
 			if (type === 'macro') {
-				this.addMacro(name, this[fnname])
+				this.addMacro(name, handler[fnname].bind(handler))
  			} else if (RegExp.$1 === 'block') {
-				this.addBlockMacro(name, options, this[fnname])
+				this.addBlockMacro(name, options, handler[fnname].bind(handler))
 			} else if (RegExp.$1 === 'special') {
 				options.freeform = true
-				this.addBlockMacro(name, options, this[fnname])
+				this.addBlockMacro(name, options, handler[fnname].bind(handler))
 			} else if (RegExp.$1 === 'filter') {
-				this.addFilter(name, this[fnname])
+				this.addFilter(name, handler[fnname].bind(handler))
 			}
 		}
 	}
@@ -48,6 +64,10 @@ Transformer.prototype.filter_lower =  function(a) {
 	return a.toString().toLowerCase()
 }
 
+Transformer.prototype.filter_caps =  function(a) {
+	return a.toString().toCapCase()
+}
+
 Transformer.prototype.macro_ldelim = function() {
 	return '{'
 }
@@ -57,10 +77,10 @@ Transformer.prototype.macro_rdelim = function() {
 }
 
 /* Builtin macros */
-Transformer.prototype.macro_set = function(params) {
-	var vars = this
-	params.each(function(key) {
-		var value = params[key]
+Transformer.prototype.macro_set = function(context) {
+	var vars = context.viewvars
+	context.params.each(function(key) {
+		var value = context.params[key]
 		vars[key] = value
 	})
 	return ''
@@ -233,7 +253,7 @@ Transformer.prototype.tryCompileVar = function(str) {
 
 // Detect and process a block close element
 Transformer.prototype.tryCompileClose = function(str) {
-	if (str.match(/^\/([a-zA-Z_0-9]+)$/)) {
+	if (str.match(/^\/([:a-zA-Z_0-9]+)$/)) {
 		return {op: 'close', param: RegExp.$1}
 	}
 }
@@ -241,7 +261,7 @@ Transformer.prototype.tryCompileClose = function(str) {
 // Detect and process a macro or block element
 Transformer.prototype.tryCompileMacro = function(macro) {
 	var self = this
-	if (macro.match(/^([a-zA-Z_0-9]+)\s*(.*)/)) {
+	if (macro.match(/^([:a-zA-Z_0-9]+)\s*(.*)/)) {
 		var macro  = RegExp.$1
 		var params = RegExp.$2
 
@@ -288,7 +308,8 @@ Transformer.prototype.invokeMacro = function(macro, params, vars) {
 		Transformer.debug.warn('invokeMacro: '+ "%s not found".format(macro) )
 		return ''
 	}
-	return macro_fn.call(vars, params)
+	var context = {params: params, viewvars: vars}
+	return macro_fn(context)
 }
 
 // Evaluate params in a sandbox and replace all variable occurances with actual values
@@ -368,7 +389,7 @@ Transformer.prototype.op_block = function(param, vars, children) {
 		var params = param.params
 		if (!param.freeform)
 			params = this.evalParams(param.params, vars)
-		var result = macro_fn.call(self, newContext, loop_count)
+		var result = macro_fn(newContext, loop_count)
 		if (result !== true) {
 			break
 		}
@@ -462,7 +483,7 @@ Transformer.prototype.closeScope = function(ptr) {
 		var realParent = ptr.realParent
 		while (ptr && ptr != realParent) {
 			if (this.blockMacros[ptr.param.macro] && this.blockMacros[ptr.param.macro].onClose) {
-				return this.blockMacros[ptr.param.macro].onClose.call(this, ptr)
+				return this.blockMacros[ptr.param.macro].onClose(ptr)
 			}
 			ptr = ptr.parent
 		}
@@ -504,7 +525,7 @@ Transformer.prototype.makeBlockInstruction = function(macro, params) {
 // Compile a template into set of instructions
 Transformer.prototype.compile = function(data) {
 	var self=this
-	var re = /{([^\}]+)}/g 
+	var re = /{([^\}\n]+)}/g 
 	var segments = root.ReSplit(data, re)
 	var instructions_root = this.makeInstruction('composite', [])
 	instructions_root.children = []
@@ -546,6 +567,10 @@ Transformer.prototype.compile = function(data) {
 		}
 	}
 	return this.cleanupInstruction(instructions_root)
+}
+
+Transformer.prototype.process = function(tpldata, vars) {
+	return this.execute(this.compile(tpldata),vars)
 }
 
 // Dump instructions in human readable format
@@ -625,7 +650,16 @@ BlockContext.prototype = {
 		}
 		Transformer.debug.warn('BlockContext.child(%s, %d) not found'.format(name, index))
 		return null
+	},
+
+	prepend: function(data) {
+		this.block_content = data + this.block_content
+	},
+
+	append: function(data) {
+		this.block_content = this.block_content + data
 	}
+
 }
 
 
