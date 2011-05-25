@@ -68,6 +68,14 @@ Transformer.prototype.filter_caps =  function(a) {
 	return a.toString().toCapCase()
 }
 
+Transformer.prototype.filter_date = function(a) {
+        return (new Date(parseInt(a))).toDateString()
+}
+
+Transformer.prototype.filter_encode = function(a) {
+        return encodeURIComponent(a)
+}
+
 Transformer.prototype.macro_ldelim = function() {
 	return '{'
 }
@@ -245,9 +253,17 @@ Transformer.prototype.isInlineVar = function(str) {
 }
 
 // Detect and compile a variable element
-Transformer.prototype.tryCompileVar = function(str) {
-	if (str.match(/^[=\$]([^|]+)(?:\|([a-zA-Z_0-9]+))?$/)) {
-		return {op: 'var', param: {name: RegExp.$1, filter: RegExp.$2 || null}}
+Transformer.prototype.tryCompileVar = function(str, defaultNamespace) {
+	defaultNamespace = defaultNamespace  || ''
+	if (str.match(/^[=\$]([^|]+)(?:\|([a-zA-Z_0-9:]+))?$/)) {
+		var name = RegExp.$1
+		var filter = RegExp.$2
+		if (filter) {
+			var deffilter = '%s:%s'.format(defaultNamespace, filter)
+			if (this.filters[deffilter])
+				filter = deffilter
+		}
+		return {op: 'var', param: {name: name, filter: filter || null}}
 	}
 }
 
@@ -259,11 +275,18 @@ Transformer.prototype.tryCompileClose = function(str) {
 }
 
 // Detect and process a macro or block element
-Transformer.prototype.tryCompileMacro = function(macro) {
+Transformer.prototype.tryCompileMacro = function(macro, defaultNamespace) {
 	var self = this
+	defaultNamespace = defaultNamespace || ''
 	if (macro.match(/^([:a-zA-Z_0-9]+)\s*(.*)/)) {
 		var macro  = RegExp.$1
 		var params = RegExp.$2
+		var defmacro = '%s:%s'.format(defaultNamespace, macro)
+		if (this.specialBlocks[defmacro] ||
+			this.macros[defmacro] ||
+			this.blockMacros[defmacro]) {
+			macro = defmacro
+		}
 
 		// Handle builtin special macros
 		if (this.specialBlocks[macro]) {
@@ -437,7 +460,7 @@ Transformer.prototype.op_composite = function(param, vars, children) {
 }
 
 // Execute an instruction, including any subinstructions
-Transformer.prototype.executeInstruction = function(instruction, vars) {
+Transformer.prototype.executeInstruction = function(instruction, vars, defaultNamespace) {
 	if (this['op_' + instruction.op]) {
 
 		return this['op_' + instruction.op](instruction.param, vars, instruction.children)
@@ -494,13 +517,16 @@ Transformer.prototype.closeScope = function(ptr) {
 	return ptr.parent
 }
 
-Transformer.prototype.findParent = function(ptr, operation) {
+Transformer.prototype.findParent = function(ptr, operation, defaultNamespace) {
+	var macro = operation.param
+	var defmacro = '%s:%s'.format(defaultNamespace, operation.param)
 	while (ptr) {
 		while (ptr && ptr.op !== 'block') {
 			ptr = ptr.parent
 		}
 		if (ptr) {
-			if (ptr.param.macro === operation.param)
+			if (ptr.param.macro === macro ||
+				ptr.param.macro === defmacro)
 				return ptr
 			if (!this.blockMacros[ptr.param.macro].autoclose) 
 				break
@@ -523,7 +549,7 @@ Transformer.prototype.makeBlockInstruction = function(macro, params) {
 }
 
 // Compile a template into set of instructions
-Transformer.prototype.compile = function(data) {
+Transformer.prototype.compile = function(data, defaultNamespace) {
 	var self=this
 	var re = /{([^\}\n]+)}/g 
 	var segments = root.ReSplit(data, re)
@@ -536,13 +562,13 @@ Transformer.prototype.compile = function(data) {
 		if (segments[i].match) {
 			operation = null
 			var field = segments[i].match.fields[0]
-			operation = this.tryCompileVar(field)
+			operation = this.tryCompileVar(field, defaultNamespace)
 			if (!operation)
-				operation = this.tryCompileMacro(field)
+				operation = this.tryCompileMacro(field, defaultNamespace)
 			if (!operation) {
 				operation = this.tryCompileClose(field)
 				if (operation) {
-					var info = this.findParent(ptr, operation)
+					var info = this.findParent(ptr, operation, defaultNamespace)
 					if (!info) {
 						Transformer.debug.error("Unexpected close tag %s" 
 												.format(operation.param))
@@ -584,14 +610,15 @@ Transformer.prototype.dumpInstruction = function(instr, offset) {
 	}
 }
 
-Transformer.prototype.applyTemplate = function(data, vars, directives, callback) {
+Transformer.prototype.applyTemplate = function(data, vars, directives, callback, defaultNamespace) {
 	var self = this
 	vars = vars || {}
 	data = ''+data
 	Transformer.debug.api('applyTemplate')
-	var code = this.compile(data)
+	var code = this.compile(data, defaultNamespace)
+	//this.dumpInstruction(code)
 	setTimeout(function() {
-		data = self.execute(code, vars)
+		data = self.execute(code, vars, defaultNamespace)
 		callback(data)
 	}, 100)
 }

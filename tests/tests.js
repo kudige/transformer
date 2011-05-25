@@ -455,13 +455,90 @@ Tests.prototype.test_html_extensions = function() {
 	transformer = new Transformer
 	transformer.enableExtension('html', '')
 	input = "Testing form {form} abcd {input name=username} {input name=passwd type=password} {/form}"
-	verify = "Testing form <form method=POST action=''> abcd <input name='username'></input> <input name='passwd' type='password'></input> </form>"
+	verify = "Testing form <form method=POST action=''> abcd <div class='field'><label for='username'>Username</label> <input name='username'></input></div> <div class='field'><label for='passwd'>Passwd</label> <input name='passwd' type='password'></input></div> </form>"
 	code = transformer.compile(input)
 	output = transformer.execute(code)
 	this.assertEquals("testextensions.htmlform2", output, verify, 'output', 'verify')
 
 	this.next()
 }
+
+/* Test namespaces */
+Tests.prototype.test_namespace1 = function() {
+	var self = this
+	this.nstransformer = new Transformer
+	var MyExtension1 = function() {
+	}
+	MyExtension1.prototype.extend({
+		macro_thing: function(context) {
+			return "I am thing " + context.params.name
+		},
+		filter_some: function(a) {
+			return 'xyz '+a
+		},
+		block_myblock: function(context, i) {
+			if (i>0) {
+				context.append('>>')
+				return false
+			}
+			context.prepend('<<')
+			return true
+		}
+	})
+
+	var MyExtension2 = function() {
+	}
+	MyExtension2.prototype.extend({
+		macro_thing: function(context) {
+			return "I am another thing " + context.params.name
+		},
+		filter_some: function(a) {
+			return a + ' abc'
+		},
+		block_myblock: function(context, i) {
+			if (i>0) {
+				context.append(']]')
+				return false
+			}
+			context.prepend('[[')
+			return true
+		}
+
+	})
+
+	this.nstransformer.addExtension(new MyExtension1, 'ext1')
+	this.nstransformer.addExtension(new MyExtension2, 'ext2')
+	var transformer = this.nstransformer
+	var input = "Testing namespaces {ext1:thing name=hello} and another {ext2:thing name=hello}, Var1 {=myfield|ext1:some} Var2 {=myfield|ext2:some}, Block {ext1:myblock}some text{/ext1:myblock} and {ext2:myblock}some text{/ext2:myblock}"
+	var verify = "Testing namespaces I am thing hello and another I am another thing hello, Var1 xyz VARIABLE Var2 VARIABLE abc, Block <<some text>> and [[some text]]"
+	transformer.applyTemplate(input, {myfield: 'VARIABLE'}, null, function(output) {
+		self.assertEquals('namespace1.1', output, verify, 'output', 'verify')
+		self.next()
+	})
+}
+
+Tests.prototype.test_namespace2 = function() {
+	var self = this
+	var transformer = this.nstransformer
+	var input = "Testing namespaces {thing name=hello} and another {ext2:thing name=hello}, Var1 {=myfield|some} Var2 {=myfield|ext2:some}, Block {myblock}some text{/myblock} and {ext2:myblock}some text{/ext2:myblock}"
+	var verify = "Testing namespaces I am thing hello and another I am another thing hello, Var1 xyz VARIABLE Var2 VARIABLE abc, Block <<some text>> and [[some text]]"
+	transformer.applyTemplate(input, {myfield: 'VARIABLE'}, null, function(output) {
+		self.assertEquals('namespace2.2', output, verify, 'output', 'verify')
+		self.next()
+	}, 'ext1')
+}
+
+Tests.prototype.test_namespace3 = function() {
+	var self = this
+	var transformer = this.nstransformer
+	var input = "Testing namespaces {ext1:thing name=hello} and another {thing name=hello}, Var1 {=myfield|ext1:some} Var2 {=myfield|some}, Block {ext1:myblock}some text{/ext1:myblock} and {myblock}some text{/myblock}"
+	var verify = "Testing namespaces I am thing hello and another I am another thing hello, Var1 xyz VARIABLE Var2 VARIABLE abc, Block <<some text>> and [[some text]]"
+	transformer.applyTemplate(input, {myfield: 'VARIABLE'}, null, function(output) {
+		self.assertEquals('namespace3.2', output, verify, 'output', 'verify')
+		self.next()
+	}, 'ext2')
+}
+
 
 /* -----------bootstrapping the testcases --------*/
 process.argv.shift()
