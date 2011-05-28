@@ -3,6 +3,7 @@
 var Jstest = require('./jstest'),
 Util = require('util'),
 FS = require('fs'),
+Path = require('path'),
 Transformer = require('transformer')
 
 //View.debug.enable()
@@ -34,8 +35,7 @@ Tests.prototype.testvars = function() {
 				n: 8}
 	var input = 'abcd {abc\n {$ a}\n} {$ b} {$ c} {$ a} {$ n*4 - n/2}'
 	var verify = 'abcd {abc\n A\n} BBB C A 28'
-	var ins = this.transformer.compile(input)
-	var output = this.transformer.execute(ins, vars)
+	var output = this.transformer.process(input, vars)
 
 	this.assertEquals('testvars.1', output, verify, 'output', 'verify')
 
@@ -525,7 +525,7 @@ Tests.prototype.test_namespace2 = function() {
 	transformer.applyTemplate(input, {myfield: 'VARIABLE'}, null, function(output) {
 		self.assertEquals('namespace2.2', output, verify, 'output', 'verify')
 		self.next()
-	}, 'ext1')
+	}, {namespace: 'ext1'})
 }
 
 Tests.prototype.test_namespace3 = function() {
@@ -536,9 +536,45 @@ Tests.prototype.test_namespace3 = function() {
 	transformer.applyTemplate(input, {myfield: 'VARIABLE'}, null, function(output) {
 		self.assertEquals('namespace3.2', output, verify, 'output', 'verify')
 		self.next()
-	}, 'ext2')
+	}, {namespace: 'ext2'})
 }
 
+Tests.prototype.test_include1 = function() {
+	var self = this
+	var transformer = new Transformer
+	var input = "Testing include {=var1}, {=var2} {include name=inc1} ALL DONE";
+	var verify = "Testing include VAR1, VAR2 This is an included file with variable var1 one two three \ntest\n ALL DONE"
+	var options = {include_path: [Path.resolve(__dirname, 'data', 'elements')]}
+	transformer.applyTemplate(input, {var1: 'VAR1', var2: 'VAR2', list: ['one', 'two','three']}, null, function(output) {
+		self.assertEquals('include1', output, verify, 'output', 'verify')
+		self.next()
+	}, options)	
+}
+
+Tests.prototype.test_include2 = function() {
+	var self = this
+	var transformer = new Transformer
+	var input = "Testing include {if var1=='VAR1'}{include name=inc2} {include name=inc2}{/if} ALL DONE";
+	var verify = "Testing include INC2\n INC2\n ALL DONE"
+	var options = {include_path: [Path.resolve(__dirname, 'data', 'elements')]}
+	transformer.applyTemplate(input, {var1: 'VAR1', var2: 'VAR2', list: ['one'], list2: ['alpha']}, null, function(output) {
+		self.assertEquals('include2', output, verify, 'output', 'verify')
+		self.next()
+	}, options)	
+}
+
+Tests.prototype.test_include3 = function() {
+	var self = this
+	var transformer = new Transformer
+	transformer.include(Path.resolve('.', 'data', 'elements1'), 'namespace1')
+	transformer.include([Path.resolve('.', 'data', 'elements2')], 'namespace2')
+	transformer.include([Path.resolve('.', 'data', 'elements3')])
+	var input = 'Testing include namespace {include name=namespace1:test} {include name=namespace2:test} {include name=test}'
+	var verify = 'Testing include namespace NS1 VAR1\n NS2 VAR1\n NSDEFAULT VAR1\n'
+	var output = transformer.process(input, {var1: "VAR1"})
+	this.assertEquals('test_include3', output, verify, 'output', 'verify')
+	self.next()
+}
 
 /* -----------bootstrapping the testcases --------*/
 process.argv.shift()

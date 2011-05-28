@@ -1,5 +1,7 @@
 var VM = require('vm'),
 Util = require('./myutils'),
+FS = require('fs'),
+Path = require('path'),
 Debug = require('./debug')
 
 var Transformer = function() {
@@ -8,6 +10,7 @@ var Transformer = function() {
 	this.blockMacros = {}
 	this.specialBlocks = {}
 	this.ignoreUnknownMacros = false
+	this.includePaths = {}
 
 	// Auto detect builtins
 	this.autodetect()
@@ -92,6 +95,39 @@ Transformer.prototype.macro_set = function(context) {
 		vars[key] = value
 	})
 	return ''
+}
+
+Transformer.prototype.macro_include = function(context) {
+	var self = this
+	var options = context.options || {}
+	var name = context.params.name
+	var namespace = options.namespace || 'default'
+
+	if (name.match(/^(.*?):(.*)/)) {
+		name = RegExp.$2
+		namespace = RegExp.$1
+	}
+
+	var paths = options.include_path || this.includePaths[namespace] || ['.']
+	var found = null
+	paths.each(function(i, path) {
+		var fullpath = Path.resolve(path, name + '.html')
+		try {
+			var data = FS.readFileSync(fullpath)
+			if (data) {
+				var vars = context.viewvars
+				var $tsaved = vars.$transformer
+				vars.$transformer = null
+				found = self.process(''+data, vars, options)
+				vars.$transformer = $tsaved
+			}
+		} catch(e) {
+		}
+	})
+	if (found === null) {
+		found = "%s not found".format(context.params.name)
+	}
+	return found
 }
 
 Transformer.prototype.special_while = function(context, i) {
@@ -306,7 +342,7 @@ Transformer.prototype.tryCompileMacro = function(macro, defaultNamespace) {
 			param.freeform = true
 		} else {
 			// Parse macro arguments
-			while (params.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=(?:([$.\[\]\(\)a-zA-Z0-9_]+)|\'([^\'\}]*)\'|(\`[^\`\}]*\`)|\"([^\"\}]*)\")\s*(.*)/)) { 
+			while (params.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=(?:([$:.\[\]\(\)a-zA-Z0-9_]+)|\'([^\'\}]*)\'|(\`[^\`\}]*\`)|\"([^\"\}]*)\")\s*(.*)/)) { 
 				var param_name = RegExp.$1
 				params = RegExp.$6
 				var value = RegExp.$2 || RegExp.$3 || RegExp.$4 || RegExp.$5
@@ -324,14 +360,14 @@ Transformer.prototype.tryCompileMacro = function(macro, defaultNamespace) {
     }
 }
 
-Transformer.prototype.invokeMacro = function(macro, params, vars) {
+Transformer.prototype.invokeMacro = function(macro, params, vars, options) {
 	Transformer.debug.api('invokeMacro: ' + macro)
 	var macro_fn = this.macros[macro]
 	if (!macro_fn) {
 		Transformer.debug.warn('invokeMacro: '+ "%s not found".format(macro) )
 		return ''
 	}
-	var context = {params: params, viewvars: vars}
+	var context = {params: params, viewvars: vars, options:options}
 	return macro_fn(context)
 }
 
@@ -381,18 +417,18 @@ Transformer.prototype.op_var = function(param, vars) {
 
 
 // Handle a macro element
-Transformer.prototype.op_macro = function(param, vars, children) {
+Transformer.prototype.op_macro = function(param, vars, children, options) {
 	var self = this
 	var macro = param.macro
 	var params = this.evalParams(param.params, vars)
-	return this.invokeMacro(macro, params, vars)
+	return this.invokeMacro(macro, params, vars, options)
 }
 
 // Handle a block element
-Transformer.prototype.op_block = function(param, vars, children) {
+Transformer.prototype.op_block = function(param, vars, children, options) {
 	var self = this
 	var macro = param.macro
-	Transformer.debug.info("op_block macro = %s".format(macro))
+	Transformer.debug.info("op_block macro = %s options %s".format(macro, JSON.stringify(options)))
 	var macro_fn = this.blockMacros[macro].callback
 	if (!macro_fn) {
 		Transformer.debug.warn("Block macro %s not found".format(macro))
@@ -416,7 +452,7 @@ Transformer.prototype.op_block = function(param, vars, children) {
 		if (result !== true) {
 			break
 		}
-		newContext.block_content = newContext.block_content + this.op_composite(param, vars, children)
+		newContext.block_content = newContext.block_content + this.op_composite(param, vars, children, options)
 		loop_count++
 	}
 	vars.$transformer.context = vars.$transformer.context.parent()
@@ -449,21 +485,22 @@ Transformer.prototype.op_while = function(param, vars, children) {
 */
 
 // Run a sequence of instructions and concat the results
-Transformer.prototype.op_composite = function(param, vars, children) {
+Transformer.prototype.op_composite = function(param, vars, children, options) {
 	var self = this
 	var result = ''
+	Transformer.debug.info('op_composite # children %s options %s'.format(children.length), JSON.stringify(options))
 	for (var i=0; i<children.length; i++) {
 		var instr = children[i]
-		result = result + self.executeInstruction(instr, vars)
+		result = result + self.executeInstruction(instr, vars, options)
 	}
 	return result
 }
 
 // Execute an instruction, including any subinstructions
-Transformer.prototype.executeInstruction = function(instruction, vars, defaultNamespace) {
+Transformer.prototype.executeInstruction = function(instruction, vars, options) {
+	Transformer.debug.info('executeInstruction op %s options %s'.format(instruction.op, JSON.stringify(options)))
 	if (this['op_' + instruction.op]) {
-
-		return this['op_' + instruction.op](instruction.param, vars, instruction.children)
+		return this['op_' + instruction.op].call(this, instruction.param, vars, instruction.children, options)
 	}
 
 	Transformer.debug.error("Invalid instruction: " + instruction.op)
@@ -472,10 +509,10 @@ Transformer.prototype.executeInstruction = function(instruction, vars, defaultNa
 }
 
 // Execute a top level instruction set
-Transformer.prototype.execute = function(code, vars) {
+Transformer.prototype.execute = function(code, vars, options) {
 	vars = this.initVars(vars)
 	
-	return this.executeInstruction(code, vars)
+	return this.executeInstruction(code, vars, options)
 }
 
 Transformer.prototype.initVars = function(vars) {
@@ -548,6 +585,20 @@ Transformer.prototype.makeBlockInstruction = function(macro, params) {
 	return instr
 }
 
+Transformer.prototype.include = function(paths, namespace) {
+	var self = this
+	namespace = namespace || 'default'
+	if (!Array.isArray(paths))
+		paths = [paths]
+	if (this.includePaths[namespace] === undefined) {
+		this.includePaths[namespace] = paths
+	} else {
+		paths.each(function(i, path) {
+			self.includePaths[namespace].push(path)
+		})
+	}
+}
+
 // Compile a template into set of instructions
 Transformer.prototype.compile = function(data, defaultNamespace) {
 	var self=this
@@ -595,8 +646,9 @@ Transformer.prototype.compile = function(data, defaultNamespace) {
 	return this.cleanupInstruction(instructions_root)
 }
 
-Transformer.prototype.process = function(tpldata, vars) {
-	return this.execute(this.compile(tpldata),vars)
+Transformer.prototype.process = function(tpldata, vars, options) {
+	options = options || {}
+	return this.execute(this.compile(tpldata, options.defaultNamespace),vars, options)
 }
 
 // Dump instructions in human readable format
@@ -610,15 +662,17 @@ Transformer.prototype.dumpInstruction = function(instr, offset) {
 	}
 }
 
-Transformer.prototype.applyTemplate = function(data, vars, directives, callback, defaultNamespace) {
+Transformer.prototype.applyTemplate = function(data, vars, directives, callback, options) {
 	var self = this
+	options = options || {}
+	var defaultNamespace = options.namespace
 	vars = vars || {}
 	data = ''+data
 	Transformer.debug.api('applyTemplate')
 	var code = this.compile(data, defaultNamespace)
 	//this.dumpInstruction(code)
 	setTimeout(function() {
-		data = self.execute(code, vars, defaultNamespace)
+		data = self.execute(code, vars, options)
 		callback(data)
 	}, 100)
 }
@@ -654,13 +708,13 @@ BlockContext.prototype = {
 			if (!name || prnt.name === name) {
 				foundLevel++
 				if (foundLevel === level) {
-					Transformer.debug.debug('BlockContext.parent(%s, %d) found'.format(name, level))
+					Transformer.debug.debug('BlockContext.parent(%s, %s) found'.format(name, level))
 					return prnt
 				}
 			}
 			prnt = prnt._parent
 		}
-		Transformer.debug.warn('BlockContext.parent(%s, %d) not found'.format(name, level))
+		Transformer.debug.warn('BlockContext.parent(%s, %s) not found'.format(name, level))
 		return null
 	},
 
@@ -675,7 +729,7 @@ BlockContext.prototype = {
 				foundIndex++
 			}
 		}
-		Transformer.debug.warn('BlockContext.child(%s, %d) not found'.format(name, index))
+		Transformer.debug.warn('BlockContext.child(%s, %s) not found'.format(name, index))
 		return null
 	},
 
@@ -691,7 +745,7 @@ BlockContext.prototype = {
 
 
 Transformer.BlockContext = BlockContext
-
+//Transformer.debug.enable()
 
 //Transformer.debug.enable()
 module.exports = Transformer

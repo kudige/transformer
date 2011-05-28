@@ -26,7 +26,7 @@ HtmlExtension.prototype.macro_input = function(context) {
 		if (!context.params.value && context.params.name) {
 			var value = VM.runInNewContext(context.params.name, context.viewvars)
 			if (value !== undefined)
-				context.params.value = value
+				context.params.value = ''+value
 		}
 	} catch(e) {
 	}
