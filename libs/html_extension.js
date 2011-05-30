@@ -22,6 +22,7 @@ HtmlExtension.prototype.block_form = function(context, i) {
 
 HtmlExtension.prototype.macro_input = function(context) {
 	var node = new Node('input')
+	// Get value
 	try {
 		if (!context.params.value && context.params.name) {
 			var value = VM.runInNewContext(context.params.name, context.viewvars)
@@ -46,6 +47,47 @@ HtmlExtension.prototype.macro_input = function(context) {
 		return "<div class='field'>" + labelnode.toString() + ' ' + node.toString() + "</div>"
 	} 
 	return "<div class='field'>" + node.toString() + "</div>"
+}
+
+HtmlExtension.prototype.macro_select = function(context) {
+	var self = this
+	var result = []
+	var output = ''
+	var name = context.params.name
+	var items = context.params.items 
+	// Get value
+	try {
+		if (!context.params.value && context.params.name) {
+			var value = VM.runInNewContext(context.params.name, context.viewvars)
+			if (value !== undefined)
+				context.params.value = ''+value
+		}
+	} catch(e) {
+	}
+	if (!context.params.label && context.params.name)
+		context.params.label = lastField(context.params.name).toCapCase()
+	if (!context.params.items && context.params.relation) {
+		context.params.items = context.viewvars[context.params.relation.pluralize()] || []
+	}
+
+	context.params.items.each(function(i, item) {
+		var key = item.key()
+		var value = item.display()
+		var selected = ''
+		if (context.params.value === value)
+			selected = "selected='1'"
+		output = output + "<option name='%s' value='%s' %s>%s</option>".format(''+key, ''+key, selected, ''+value)
+	})
+	var select = "<select name='%s'>%s</select>".format(name, output)
+
+	if (context.params.label) {
+		var labelnode = new Node('label')
+		labelnode.set('for', context.params.name)
+		labelnode.value = context.params.label
+		return "<div class='field'>" + labelnode.toString() + ' ' + select + "</div>"
+	} 
+	return "<div class='field'>" + select + "</div>"
+
 }
 
 HtmlExtension.prototype.macro_submit = function(context) {

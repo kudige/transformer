@@ -325,12 +325,13 @@ Tests.prototype.testspecial = function() {
 	this.assertEquals('testspecial.while2', output, verify, 'output', 'verify')
 
 	// simple foreach
-	input = 'This is the order: {foreach from=orders item=order key=index}{$index} ITEM: {$order.name} PRICE: {$order.price}\n{/foreach} thats all'
+	input = 'This is the order: {foreach from=purchase.orders item=order key=index}{$index} ITEM: {$order.name} PRICE: {$order.price}\n{/foreach} thats all'
 	verify = 'This is the order: 0 ITEM: iPad PRICE: 20\n1 ITEM: iPhone PRICE: 10\n thats all'
 	verify2 = 'This is the order:  thats all'
 	var orders = [{name: 'iPad', price: 20}, {name: 'iPhone', price:10}]
+	var purchase = {orders: orders}
 	code = this.transformer.compile(input)
-	output = this.transformer.execute(code, {orders: orders})
+	output = this.transformer.execute(code, {purchase: purchase})
 	this.assertEquals('testspecial.foreach1', output, verify, 'output', 'verify')
 	// foreach with empty data
 	output = this.transformer.execute(code, {orders: []})
@@ -566,9 +567,9 @@ Tests.prototype.test_include2 = function() {
 Tests.prototype.test_include3 = function() {
 	var self = this
 	var transformer = new Transformer
-	transformer.include(Path.resolve('.', 'data', 'elements1'), 'namespace1')
-	transformer.include([Path.resolve('.', 'data', 'elements2')], 'namespace2')
-	transformer.include([Path.resolve('.', 'data', 'elements3')])
+	transformer.include(Path.resolve(__dirname, 'data', 'elements1'), 'namespace1')
+	transformer.include([Path.resolve(__dirname, 'data', 'elements2')], 'namespace2')
+	transformer.include([Path.resolve(__dirname, 'data', 'elements3')])
 	var input = 'Testing include namespace {include name=namespace1:test} {include name=namespace2:test} {include name=test}'
 	var verify = 'Testing include namespace NS1 VAR1\n NS2 VAR1\n NSDEFAULT VAR1\n'
 	var output = transformer.process(input, {var1: "VAR1"})

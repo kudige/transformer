@@ -204,7 +204,8 @@ Transformer.prototype.block_foreach = function(context, i) {
 		context.from = context.viewvars[context.params.from]
 		var kvlist = []
 		try {
-			context.viewvars[context.params.from].each(function(k,v, kvlist1) {
+			var from = VM.runInNewContext(context.params.from, context.viewvars)
+			from.each(function(k,v, kvlist1) {
 				kvlist.push({key: k, value: v})
 			}, kvlist)
 		} catch(e) {
@@ -409,6 +410,8 @@ Transformer.prototype.op_var = function(param, vars) {
 		var result = fn(VM.runInNewContext(varname, vars))
 		if (typeof(result) === 'undefined')
 			result = ''
+//		if (result && typeof(result) !== typeof(''))
+//			result = result+''
 		return result
 	} catch(e) {
 		return ''
